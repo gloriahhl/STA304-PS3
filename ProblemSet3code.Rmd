@@ -1,0 +1,433 @@
+---
+title: "Analysis of Predicted Votes for 2020 President Election"
+author: "Siyi Lin, Hailan Huang, Zizhuo,Huang"
+date: "2020-11-02"
+output:
+  pdf_document: default
+  latex_engine: xelatex
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+library(haven)
+library(tidyverse)
+
+setwd("/Users/lilyyyyyyyyyy_/Desktop/PS3")
+
+raw_data_survey <- read_dta("/Users/lilyyyyyyyyyy_/Desktop/PS3/ns20200625/ns20200625.dta")
+# Add the labels
+raw_data_survey <- labelled::to_factor(raw_data_survey)
+# Just keep some variables
+reduced_data_survey <- 
+  raw_data_survey %>% 
+  select(vote_2020,
+         vote_intention,
+         registration,
+         gender,
+         state,
+         household_income,
+         race_ethnicity,
+         education,
+         age)
+
+reduced_data_survey$age<-as.numeric(reduced_data_survey$age)
+filtered_data_survey<-reduced_data_survey %>% 
+  filter(registration=="Registered"&
+           (vote_intention=="Yes, I will vote"|
+              vote_intention=="Not sure")&
+           (vote_2020=="Donald Trump"|vote_2020=="Joe Biden"))
+
+filtered_data_survey<-na.omit(filtered_data_survey)
+rm(raw_data_survey,reduced_data_survey)
+
+
+#cleaning census data
+setwd("/Users/lilyyyyyyyyyy_/Desktop/PS3")
+raw_data_census <- read_dta("/Users/lilyyyyyyyyyy_/Desktop/PS3/usa_00001.dta")
+raw_data_census <- labelled::to_factor(raw_data_census)
+
+reduced_data_census <- 
+  raw_data_census %>% 
+  select(perwt,
+         citizen,
+         age,
+         sex, 
+         educd,
+         stateicp,
+         hhincome,
+         race
+  )
+reduced_data_census$age<-as.numeric(reduced_data_census$age)+2
+filtered_data_census<-reduced_data_census %>% filter(age>=18 & (citizen=="naturalized citizen"|citizen=="born abroad of american parents"))
+filtered_data_census$hhincome<-ifelse(filtered_data_census$hhincome==9999999,
+                                      NaN,filtered_data_census$hhincome)
+
+filtered_data_census<-na.omit(filtered_data_census)
+rm(raw_data_census,reduced_data_census)
+
+
+```
+
+```{r, include=FALSE}
+#create age group
+filtered_data_survey<-filtered_data_survey %>% 
+  mutate(agegroup = case_when(age <=20 ~ '20 or less',
+                              age >20  & age <= 35 ~ '21 to 35',
+                              age >35  & age <= 50 ~ '35 to 50',
+                              age >50  & age <= 65 ~ '50 to 65',
+                              age >65  & age <= 80 ~ '65 to 80',
+                              age >80 ~ 'above 80'
+  )) 
+filtered_data_census<-filtered_data_census %>% 
+  mutate(agegroup = case_when(age <=20 ~ '20 or less',
+                              age >20  & age <=  35 ~ '21 to 35',
+                              age >35  & age <= 50 ~ '35 to 50',
+                              age >50  & age <= 65 ~ '50 to 65',
+                              age >65  & age <= 80 ~ '65 to 80',
+                              age >80 ~ 'above 80' 
+  ))
+
+unique(filtered_data_census$agegroup)
+unique(filtered_data_survey$agegroup)
+
+#clean sex/gender
+unique(filtered_data_census$sex)
+unique(filtered_data_survey$gender)
+filtered_data_census$sex<-ifelse(filtered_data_census$sex=="female","Female","Male")
+filtered_data_census<-rename(filtered_data_census,gender=sex)
+unique(filtered_data_census$gender)
+unique(filtered_data_survey$gender)
+
+#clean education
+unique(filtered_data_census$educd)
+unique(filtered_data_survey$education)
+
+#Survey
+filtered_data_survey$education[filtered_data_survey$education=="Other post high school vocational training"]<-"High school graduate"
+filtered_data_survey$education[filtered_data_survey$education=="Completed some graduate, but no degree"]<-"College Degree (such as B.A., B.S.)"
+#Census
+grade3.less<-c("no schooling completed","nursery school, preschool","kindergarten","grade 1","grade 2","grade 3")
+grade4to8<-c("grade 4","grade 5","grade 6","grade 7","grade 8")
+grade9to11<-c("grade 9","grade 10","grade 11","12th grade, no diploma")
+edu.highsch<-c("ged or alternative credential","regular high school diploma")
+edu.somecoll<-c("some college, but less than 1 year",
+                "1 or more years of college credit, no degree")
+filtered_data_census<-filtered_data_census %>% 
+  mutate(newedu = case_when(educd =="associate's degree, type not specified" ~ 'Associate Degree',
+                            educd=="doctoral degree"~'Doctorate degree',
+                            educd =="master's degree" ~ 'Masters degree',
+                            educd=="professional degree beyond a bachelor's degree" ~ "College Degree (such as B.A., B.S.)",
+                            educd =="bachelor's degree" ~ "College Degree (such as B.A., B.S.)",
+                            educd %in% edu.somecoll~"Completed some college, but no degree",
+                            educd %in% edu.highsch~"High school graduate",
+                            educd %in% grade9to11~"Completed some high school",
+                            educd %in% grade4to8~"Middle School - Grades 4 - 8",
+                            educd %in% grade3.less ~"3rd Grade or less"
+  )) 
+#drop educd & rename educd2
+filtered_data_census<-rename(filtered_data_census,education=newedu)
+filtered_data_census$educd<-NULL
+unique(filtered_data_census$education)
+unique(filtered_data_survey$education)
+
+# clean stateicp
+filtered_data_census<-filtered_data_census %>% 
+  mutate(state = case_when(stateicp=="alabama"~"AL",
+                           stateicp=="alaska"~"AK",
+                           stateicp=="arizona"~"AZ",
+                           stateicp=="arkansas"~"AR",
+                           stateicp=="california"~"CA",
+                           stateicp=="colorado"~"CO",
+                           stateicp=="connecticut"~"CT",
+                           stateicp=="delaware"~"DE",
+                           stateicp=="florida"~"FL",
+                           stateicp=="georgia"~"GA",
+                           stateicp=="hawaii"~"HI",
+                           stateicp=="idaho"~"ID",
+                           stateicp=="illinois"~"IL",
+                           stateicp=="indiana"~"IN",
+                           stateicp=="iowa"~"IA",
+                           stateicp=="kansas"~"KS",
+                           stateicp=="kentucky"~"KY",
+                           stateicp=="louisiana"~"LA",
+                           stateicp=="maine"~"ME",
+                           stateicp=="maryland"~"MD",
+                           stateicp=="massachusetts"~"MA",
+                           stateicp=="michigan"~"MI",
+                           stateicp=="minnesota"~"MN",
+                           stateicp=="mississippi"~"MS",
+                           stateicp=="missouri"~"MO",
+                           stateicp=="montana"~"MT",
+                           stateicp=="nebraska"~"NE",
+                           stateicp=="nevada"~"NV",
+                           stateicp=="new hampshire"~"NH",
+                           stateicp=="new jersey"~"NJ",
+                           stateicp=="new mexico"~"NM",
+                           stateicp=="new york"~"NY",
+                           stateicp=="north carolina"~"NC",
+                           stateicp=="north dakota"~"ND",
+                           stateicp=="ohio"~"OH",
+                           stateicp=="oklahoma"~"OK",
+                           stateicp=="oregon"~"OR",
+                           stateicp=="pennsylvania"~"PA",
+                           stateicp=="rhode island"~"RI",
+                           stateicp=="south carolina"~"SC",
+                           stateicp=="south dakota"~"SD",
+                           stateicp=="tennessee"~"TN",
+                           stateicp=="texas"~"TX",
+                           stateicp=="utah"~"UT",
+                           stateicp=="vermont"~"VT",
+                           stateicp=="virginia"~"VA",
+                           stateicp=="washington"~"WA",
+                           stateicp=="west virginia"~"WV",
+                           stateicp=="wisconsin"~"WI",
+                           stateicp=="wyoming"~"WY",
+                           stateicp=="district of columbia"~"DC")) 
+filtered_data_census$stateicp<-NULL
+
+unique(filtered_data_census$state)
+unique(filtered_data_survey$state)
+
+# clean household income
+x<-unique(filtered_data_survey$household_income)
+min(filtered_data_census$hhincome)
+max(filtered_data_census$hhincome)
+filtered_data_census<-filtered_data_census %>% 
+  mutate(household_income = case_when(hhincome<=14999 ~ "Less than $14,999",
+                                      hhincome>=15000 & hhincome<=19999~"$15,000 to $19,999",
+                                      hhincome>=20000 & hhincome<=24999~"$20,000 to $24,999",
+                                      hhincome>=25000 & hhincome<=29999~"$25,000 to $29,999",
+                                      hhincome>=30000 & hhincome<=34999~"$30,000 to $34,999",
+                                      hhincome>=35000 & hhincome<=39999~"$35,000 to $39,999",
+                                      hhincome>=40000 & hhincome<=44999~"$40,000 to $44,999",
+                                      hhincome>=45000 & hhincome<=49999~"$45,000 to $49,999",
+                                      hhincome>=50000 & hhincome<=54999~"$50,000 to $54,999",
+                                      hhincome>=55000 & hhincome<=59999~"$55,000 to $59,999",
+                                      hhincome>=60000 & hhincome<=64999~"$60,000 to $64,999",
+                                      hhincome>=65000 & hhincome<=69999~"$65,000 to $69,999",
+                                      hhincome>=70000 & hhincome<=74999~"$70,000 to $74,999",
+                                      hhincome>=75000 & hhincome<=79999~"$75,000 to $79,999",
+                                      hhincome>=80000 & hhincome<=84999~"$80,000 to $84,999",
+                                      hhincome>=85000 & hhincome<=89999~"$85,000 to $89,999",
+                                      hhincome>=90000 & hhincome<=94999~"$90,000 to $94,999",
+                                      hhincome>=95000 & hhincome<=99999~"$95,000 to $99,999",
+                                      hhincome>=100000 & hhincome<=124999~"$100,000 to $124,999",
+                                      hhincome>=125000 & hhincome<=149999~"$125,000 to $149,999",
+                                      hhincome>=150000 & hhincome<=174999~"$150,000 to $174,999",
+                                      hhincome>=175000 & hhincome<=199999~"$175,000 to $199,999",
+                                      hhincome>=200000 & hhincome<=249999~"$200,000 to $249,999",
+                                      hhincome>=250000~"$250,000 and above"
+  )) 
+
+filtered_data_census$hhincome<-NULL
+
+unique(filtered_data_census$household_income)
+unique(filtered_data_survey$household_income)
+
+#clean race ethnicity
+length(unique(filtered_data_survey$race_ethnicity))
+length(unique(filtered_data_census$race))
+
+otherasian<-c("Asian (Asian Indian)","Asian (Vietnamese)","Asian (Other)","Asian (Korean)","Asian (Filipino)",
+              "Pacific Islander (Native Hawaiian)","Pacific Islander (Other)",
+              "Pacific Islander (Samoan)","Pacific Islander (Guamanian)")
+#survey data
+filtered_data_survey<-filtered_data_survey %>% 
+  mutate(race = case_when(race_ethnicity =="Asian (Japanese)" ~ 'Japanese',
+                          race_ethnicity =="Asian (Chinese)" ~ 'Chinese',
+                          race_ethnicity %in% otherasian ~"other asian or pacific islander",
+                          race_ethnicity =="White" ~ 'White',
+                          race_ethnicity =="Black, or African American" ~ 'Black, or African American',
+                          race_ethnicity =="Some other race" ~ 'Other race',
+                          race_ethnicity=="American Indian or Alaska Native"~"American Indian or Alaska Native",
+                          race_ethnicity=="Other race "~"Other race"
+  )) 
+filtered_data_survey$race_ethnicity<-NULL
+
+#census data
+filtered_data_census<-filtered_data_census %>% 
+  mutate(race2 = case_when(race=="white"~"White",
+                           race=="chinese"~"Chinese",
+                           race=="black/african american/negro"~"Black, or African American",
+                           race=="two major races"~"Other race",
+                           race=="other race, nec"~"Other race",
+                           race=="japanese"~"Japanese",
+                           race=="american indian or alaska native"~"American Indian or Alaska Native",
+                           race=="three or more major races"~"Other race",
+                           race=="other asian or pacific islander"~"other asian or pacific islander"
+  )) 
+unique(filtered_data_census$race2)
+
+filtered_data_census$race<-filtered_data_census$race2
+filtered_data_census$race2<-NULL
+
+unique(filtered_data_census$race)
+unique(filtered_data_survey$race)
+
+```
+
+```{r, include=FALSE}
+#Populate Datset for modelling
+filtered_data_survey%>% select(vote_2020,age,agegroup,gender,education,state,household_income,race)->datasetsurvey
+filtered_data_census%>% select(perwt,age,agegroup,gender,education,state,household_income,race)->datasetcensus
+rm(filtered_data_census,filtered_data_survey)
+
+#Create cell variable in both datasets
+#create cells- Do not create too many cells as the sample obs number is limited
+datasetsurvey$cell<-paste(datasetsurvey$gender,datasetsurvey$race)
+datasetcensus$cell<-paste(datasetcensus$gender,datasetcensus$race)
+
+#Convert variables to factors
+f.cols.survey<-c("agegroup","gender","education","state","household_income" ,"race", "cell","vote_2020")
+datasetsurvey[f.cols.survey] <- lapply(datasetsurvey[f.cols.survey], factor) 
+f.cols.census<-c("agegroup","gender","education","state","household_income" ,"race", "cell")
+datasetcensus[f.cols.census] <- lapply(datasetcensus[f.cols.census], factor) 
+datasetsurvey$vote_2020 <- relevel(datasetsurvey$vote_2020, ref = "Donald Trump")    #To predict probability of voting for Biden (Trump as ref)
+length(unique(datasetsurvey$cell)) 
+length(unique(datasetcensus$cell))
+```
+
+
+
+
+Model
+```{r, include=FALSE}
+chooseCRANmirror(ind = 14)
+options("repos")
+#local({r<-getOption("repos")%>%
+#r["CRAN"]<-"https://muug.ca/mirror/cran"%>%
+#options(repos = r)})
+
+library(lme4)
+library(brms)
+library(caret)
+library(ROCR)
+
+
+#model1
+model1<- glmer(vote_2020~(1+race|cell)+gender+education+state+household_income,
+                      data = datasetsurvey, 
+                      family=binomial)
+
+summary(model1)
+
+prob.1<-predict(model1,type=c('response'))
+result_model1<-ifelse(prob.1>=0.5,"Joe Biden","Donald Trump")
+datasetsurvey.result<-cbind(datasetsurvey,result_model1)
+
+#model2
+model2 <- glmer(vote_2020~(1+race|cell)+agegroup+gender+education+household_income,
+                      data =datasetsurvey, 
+                      family=binomial)
+
+summary(model2)
+
+
+prob.2<-predict(model2,type=c('response'))
+result_model2<-ifelse(prob.2>=0.5,"Joe Biden","Donald Trump")
+datasetsurvey.result<-cbind(datasetsurvey.result,result_model2)
+```
+
+
+
+Model Specifics
+
+We will be using data collected from survey data to predict the overall popular vote of the 2020 American federal election. But this data is not representative to analyze our goal. Therefore we use MRP (multilevel regression with post-stratification) to model the proportion of voters who will vote for Joe Biden. Because of the policy of electoral college, the candidate who collects more votes in a state will gain all of the votes from the electors in that state, except for Maine state and Nebraska state. The candidate who owns the most elector votes will be the winner eventually.
+
+To do this, we first partition the population into cells, two models will be created. For model 1, we set random intercept and coefficient model which means both intercepts and slopes are allowed to vary. In the random effects part, the standard deviation of cell is 0.8147 which is the standard deviation of normal distribution followed by intercept of baseline. In the fixed effects part, the list of estimates are the constant of each variables in cell. It is the same when applying model 2 where the only difference is that we substitute the state into age group in cells.
+
+
+
+Post-Stratification 
+
+We transform the raw data into accurate estimates of voter intent in the general electorate, we make use of the rich demographic information that respondents provide. The core idea of post-stratification is to partition the population into cells based on combinations of various demographic and political attributes, use the sample to estimate the response variable within each cell, and finally aggregate the cell-level estimates up to a population-level estimate by weighting each cell by its relative proportion in the population.
+
+First model containing 18,400 cells will be using gender (2 categories), education (8 categories), state (50 categories), and household income (23 categories). Second model containing 1,840 cells will be using gender (2 categories), age group (5 categories), education (8 categories), and household income (23 categories). Then we compare these two models, select a better one and apply it to the census data of 2018. These variables are included because they are available in both the survey data and the census data, and they are likely to be significant and influential to our goal.
+
+```{r, echo=FALSE}
+
+####Apply model on census data####
+vote_2020_prob<-predict(model1,datasetcensus[,c("agegroup","gender","education","state",
+                                                    "household_income","race","cell")],type="response")
+vote_2020_pred<-ifelse(vote_2020_prob>0.5,"Joe Biden","Donald Trump")
+datasetcensus.result<-cbind(datasetcensus,vote_2020_pred)
+
+####calculate total votes based on person weight####
+ datasetcensus.result$trump_votes<-ifelse(datasetcensus.result$vote_2020_pred=="Donald Trump",datasetcensus.result$perwt,0)
+datasetcensus.result$biden_votes<-ifelse(datasetcensus.result$vote_2020_pred=="Joe Biden",datasetcensus.result$perwt,0)
+
+####Calculate vote per state
+datasetcensus.result %>% group_by(state) %>% summarise(Trump=sum(trump_votes),Biden=sum(biden_votes))->predicted_states
+predicted_states$winner<-ifelse(predicted_states$Trump>predicted_states$Biden,
+                                "Donald Trump","Joe Biden")
+predicted_states<- predicted_states%>% 
+  mutate(voterate = Biden/(Biden+Trump))
+
+filtered_predicted_states<- predicted_states%>%filter(predicted_states$winner == "Joe Biden")
+Y<- sum(filtered_predicted_states$electoral_votes)/538
+
+####Mutate electoral votes per state (google this information)####
+predicted_states<-predicted_states %>% 
+  mutate(electoral_votes = case_when(state=="CA"~55,state=="TX"~38,state=="FL"~29,state=="NY"~29,state=="IL"~20,state=="PA"~20,state=="OH"~18,
+                                     state=="GA"~16,state=="MI"~16,state=="NC"~15,state=="NJ"~14,state=="VA"~13,state=="WA"~12,state=="AZ"~11,
+                                     state=="IN"~11,state=="MA"~11,state=="TN"~11,state=="MD"~10,state=="MN"~10,state=="MO"~10,state=="WI"~10,
+                                     state=="AL"~9,state=="CO"~9,state=="SC"~9,state=="KY"~8,state=="LA"~8,state=="CT"~7,state=="OK"~7,
+                                     state=="OR"~7,state=="AR"~6,state=="IA"~6,state=="KS"~6,state=="MS"~6,state=="NV"~6,state=="UT"~6,
+                                     state=="NE"~5,state=="NM"~5,state=="WV"~5,state=="HI"~4,state=="ID"~4,state=="ME"~4,state=="NH"~4,
+                                     state=="RI"~4,state=="AK"~3,state=="DE"~3,state=="MT"~3,state=="ND"~3,state=="SD"~3,state=="VT"~3,
+                                     state=="WY"~3,state=="DC"~3
+  )) 
+
+
+
+
+
+
+```
+
+
+Results
+
+AIC is a statistic that balances the goodness of fit of the model with a penalty term reflecting how complex the model is. And the penalty for BIC is more severe than the AIC so it will favor simpler models more.  The preferred model is one with the lowest AIC. As with AIC, smaller values of BIC indicate the better model. After comparing, model 2 has much lower AIC and BIC so we choose model 2 to apply to the census data.
+
+We use y to indicate the outcome of interest, the post-stratification estimate is defined by $\hat{y}_{ps}$ = $\sum_{j=1}^{j}{N_j \hat{y}_j}$/$\sum_{j=1}^{j}{N_j}$
+where $y_j$ is the estimate of vote for which candidate in cell j, and $N_j$ is the population size of the jth cell whether it votes for BIDEN in each demographic cell. To illustrate this approach, we compute Xbox estimates of Bidden support for each level of our categorical variables, and compare those with the actual voting behaviors of those same groups, as estimated by the 2018 national exit poll.
+
+We calculate that the proportion of voters intending to vote for BIDEN to be 0.5910781. It is according to the post-stratification analysis of the proportion of voters in favor of BIDEN modeled by multilevel regression model, which account for age group, gender, education, and household income. 
+
+```{r, echo=FALSE}
+predicted_states %>% group_by(winner) %>% summarise(total_votes=sum(electoral_votes))->election_result
+election_result
+
+```
+
+
+Discussion
+
+Post-stratification is a common statistical technique to correct estimates when there are known differences between target population and study population. It is a method which aggregate cell-level value by weighting each cell by its relative proportion in population. It is useful because it increases the representativeness of the sample. 
+
+We figure out that Donald Trump will have 220 votes while Joe Biden will have 318 votes. According to the estimated proportion of voters intending to vote for Joe Biden being 0.5910781,  we predict that Joe Biden will win the election.
+
+
+
+
+
+Weaknesses
+
+After setting the model and analysis, we find that there are some weakness in this model. First one is that we assume two states, ME state and NE state, are the same as other states but these two states have different voting policy. Everyone in these two states can vote for candidates they want while others have electoral college. Second one is that this census is done by 2018, which may not be effective in 2020 vote. 
+
+
+Next Steps
+
+What we can do next is that adding more data in survey cause it may not be adequate to support our conclusion. We can also divide cell more specifically than we an get more detailed result to predict who will win the election. Besides, we can add a weight on the education. Cause education level is one important factor influencing the vote intention and it is supposed to account for more proportion when considering the vote for candidates.
+
+
+References
+
+Tausanovitch, Chris and Lynn Vavreck. 2020. Democracy Fund + UCLA Nationscape, October 10-17, 2019 (version 20200814). Retrieved from [URL].
+
+Steven Ruggles, Sarah Flood, Ronald Goeken, Josiah Grover, Erin Meyer, Jose Pacas and Matthew Sobek. IPUMS USA: Version 10.0 [dataset]. Minneapolis, MN: IPUMS, 2020. https://doi.org/10.18128/D010.V10.0
+
+Wei Wang, David Rothschild, Sharad Goel, Andrew Gelmana, chttps://www.microsoft.com/en-us/research/wp-content/uploads/2016/04/forecasting-with-nonrepresentative-polls.pdf, 2014
+
